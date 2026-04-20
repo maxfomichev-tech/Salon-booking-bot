@@ -150,7 +150,7 @@ async def book_name(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(client_name=name)
     await state.set_state(BookingFlow.phone)
-    await message.answer("Ваш телефон (например +7 999 123-45-67)?")
+    await message.answer("Ваш телефон (например: +7 999 123-45-67)?")
 
 
 async def book_phone(message: Message, state: FSMContext) -> None:
@@ -293,8 +293,8 @@ def main() -> None:
             logger.info("Bot starting in webhook mode on port %s", port)
 
             app = web.Application()
-            app.router.add_get("/health", lambda _: web.Response(text="ok"))
-            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+            app.router.add_get("/", lambda _: web.Response(text="ok"))
+            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/")
             setup_application(app, dp, bot=bot)
 
             runner = web.AppRunner(app)
