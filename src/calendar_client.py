@@ -43,9 +43,13 @@ class GoogleCalendarClient:
                 scopes=["https://www.googleapis.com/auth/calendar"],
             )
         else:
-            raise ValueError("Provide service_account_json_content or service_account_json_path")
+            raise ValueError(
+                "Provide service_account_json_content or service_account_json_path"
+            )
 
-        self._service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        self._service = build(
+            "calendar", "v3", credentials=creds, cache_discovery=False
+        )
         self._calendar_id = calendar_id
 
     def is_time_available(self, start: datetime, end: datetime) -> bool:
@@ -65,8 +69,35 @@ class GoogleCalendarClient:
         body = {
             "summary": summary,
             "description": description,
-            "start": {"dateTime": booking.start.isoformat(), "timeZone": booking.timezone},
+            "start": {
+                "dateTime": booking.start.isoformat(),
+                "timeZone": booking.timezone,
+            },
             "end": {"dateTime": booking.end.isoformat(), "timeZone": booking.timezone},
         }
-        event = self._service.events().insert(calendarId=self._calendar_id, body=body).execute()
+        event = (
+            self._service.events()
+            .insert(calendarId=self._calendar_id, body=body)
+            .execute()
+        )
         return event.get("htmlLink") or ""
+
+    def generate_ics(self, booking: Booking) -> str:
+        """Генерирует .ics файл для клиента."""
+        dt_format = "%Y%m%dT%H%M%S"
+        start_str = booking.start.strftime(dt_format)
+        end_str = booking.end.strftime(dt_format)
+
+        ics = f"""BEGIN:VCALENDAR
+    VERSION:2.0
+    PRODID:-//{booking.salon_name}//RU
+    BEGIN:VEVENT
+    DTSTART;TZID={booking.timezone}:{start_str}
+    DTEND;TZID={booking.timezone}:{end_str}
+    SUMMARY:{booking.service_name} — {booking.salon_name}
+    DESCRIPTION:Клиент: {booking.client_name}\\nТелефон: {booking.phone}\\nУслуга: {booking.service_name}
+    LOCATION:{booking.salon_name}
+    END:VEVENT
+    END:VCALENDAR"""
+
+        return ics
