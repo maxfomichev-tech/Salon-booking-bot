@@ -37,15 +37,34 @@ class BookingFlow(StatesGroup):
 
 def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
     """
-    Minimal parser: expects 'YYYY-MM-DD HH:MM' in local salon timezone.
+    Парсер даты: поддерживает:
+    - DD.MM HH:MM (подставляет текущий год)
+    - DD.MM.YYYY HH:MM (полная дата)
+    - YYYY-MM-DD HH:MM (стандартный формат)
     """
     text = text.strip()
+    now = datetime.now(ZoneInfo(tz))
+    
+    # Формат: DD.MM HH:MM (без года)
+    try:
+        dt = datetime.strptime(text, "%d.%m %H:%M")
+        return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
+    except ValueError:
+        pass
+    
+    # Формат: DD.MM.YYYY HH:MM
+    try:
+        dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
+        return dt.replace(tzinfo=ZoneInfo(tz))
+    except ValueError:
+        pass
+    
+    # Стандартный формат: YYYY-MM-DD HH:MM
     try:
         dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
         return dt.replace(tzinfo=ZoneInfo(tz))
     except ValueError:
         return None
-
 
 @dataclass(frozen=True)
 class AppState:
@@ -116,12 +135,14 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
     await state.update_data(service=svc.service, duration_minutes=svc.duration_minutes, price_rub=svc.price_rub)
     await state.set_state(BookingFlow.dt)
     await message.answer(
-        "Отлично. Напишите дату и время в формате <code>YYYY-MM-DD HH:MM</code>.\n"
+        "Отлично. Напишите дату и время.\n"
         f"Часовой пояс: {app.cfg.salon_timezone}\n"
-        "Пример: 2026-04-25 15:30",
+        "Форматы:\n"
+        "<code>25.04 15:30</code> — день.месяц время (текущий год)\n"
+        "<code>25.04.2026 15:30</code> — с указанием года\n"
+        "<code>2026-04-25 15:30</code> — полная дата",
         parse_mode=ParseMode.HTML,
     )
-
 
 async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
