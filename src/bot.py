@@ -191,14 +191,21 @@ async def book_phone(message: Message, state: FSMContext) -> None:
     await state.set_state(BookingFlow.confirm)
 
     data = await state.get_data()
-    await message.answer(
-        "Проверьте запись:\n"
-        f"- Услуга: {data['service']} ({data['duration_minutes']} мин, {data['price_rub']} ₽)\n"
-        f"- Когда: {data['start_iso'][:16].replace('T', ' ')}\n"
-        f"- Имя: {data['client_name']}\n"
-        f"- Телефон: {data['phone']}\n\n"
-        "Ответьте «да» чтобы подтвердить или «нет» чтобы отменить."
-    )
+    from datetime import datetime  # убедитесь, что импорт есть
+
+# ... внутри book_phone ...
+
+start = datetime.fromisoformat(data['start_iso'])
+formatted_date = start.strftime("%d.%m.%Y %H:%M")
+
+await message.answer(
+    "Проверьте запись:\n"
+    f"- Услуга: {data['service']} ({data['duration_minutes']} мин, {data['price_rub']} ₽)\n"
+    f"- Когда: {formatted_date}\n"
+    f"- Имя: {data['client_name']}\n"
+    f"- Телефон: {data['phone']}\n\n"
+    "Ответьте «да» чтобы подтвердить или «нет» чтобы отменить."
+)
 
 
 async def book_confirm(message: Message, state: FSMContext, app: AppState) -> None:
