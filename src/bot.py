@@ -245,9 +245,17 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
     )
     link = app.calendar.create_booking_event(booking)
     await state.clear()
-    await message.answer("Готово! Я создал событие в календаре.")
-    if link:
-        await message.answer(f"Ссылка: {link}")
+    await message.answer("Готово! Вы записаны.")
+
+    # Генерируем и отправляем .ics файл
+    ics_content = app.calendar.generate_ics(booking)
+    await message.answer_document(
+        document=types.BufferedInputFile(
+            file=ics_content.encode('utf-8'),
+            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics"
+        ),
+        caption="Добавьте запись в свой календарь 📅"
+    )
 
 
 async def consult(message: Message, state: FSMContext, app: AppState) -> None:
