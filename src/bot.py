@@ -218,7 +218,7 @@ async def book_phone(message: Message, state: FSMContext) -> None:
         f"- Когда: {formatted_date}\n"
         f"- Имя: {data['client_name']}\n"
         f"- Телефон: {data['phone']}\n\n"
-        "Ответьте «да» чтобы подтвердить или «нет» чтобы отменить."
+        "Ответьте «да», чтобы подтвердить, или «нет», чтобы отменить."
     )
 
 

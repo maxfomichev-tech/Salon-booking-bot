@@ -1,6 +1,7 @@
 # Telegram бот салона красоты "Аарон"
 
 Бот:
+
 - консультирует клиентов (через бесплатные модели Groq)
 - предлагает услуги и цены из прайс-листа
 - записывает клиента в Google Calendar
@@ -14,7 +15,7 @@
 
 ## 2) Быстрый старт
 
-1) Установить зависимости:
+1. Установить зависимости:
 
 ```bash
 py -m venv .venv
@@ -30,13 +31,13 @@ py -3.13 -m venv .venv
 pip install -r requirements.txt
 ```
 
-2) Создать `.env` из примера: 
+1. Создать `.env` из примера:
 
 ```bash
 copy .env.example .env
 ```
 
-3) Подготовить Google Calendar (вариант с service account)
+1. Подготовить Google Calendar (вариант с service account)
 
 - В Google Cloud Console создайте **Service Account** и скачайте ключ JSON.
 - Укажите креды одним из способов:
@@ -46,7 +47,7 @@ copy .env.example .env
 - В `.env` укажите `GOOGLE_CALENDAR_ID`:
   - обычно это email календаря, либо ID вида `...@group.calendar.google.com`.
 
-4) Запуск:
+1. Запуск:
 
 ```bash
 python -m src.bot
@@ -56,14 +57,14 @@ python -m src.bot
 
 Рекомендация: запускать в **webhook режиме**.
 
-1) Загрузите проект в GitHub.
-2) В Render создайте **New → Web Service** из репозитория.
-3) Укажите переменные окружения (секретами):
-   - `TELEGRAM_BOT_TOKEN`
-   - `GROQ_API_KEY`
-   - `GOOGLE_CALENDAR_ID`
-   - `GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT` (JSON строкой в секрете) **или** `GOOGLE_SERVICE_ACCOUNT_JSON` (путь к secret file)
-4) В Render внешний URL автоматически попадает в `RENDER_EXTERNAL_URL`, бот сам соберёт `WEBHOOK_URL = <ваш_render_url>/webhook`.
+1. Загрузите проект в GitHub.
+2. В Render создайте **New → Web Service** из репозитория.
+3. Укажите переменные окружения (секретами):
+  - `TELEGRAM_BOT_TOKEN`
+  - `GROQ_API_KEY`
+  - `GOOGLE_CALENDAR_ID`
+  - `GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT` (JSON строкой в секрете) **или** `GOOGLE_SERVICE_ACCOUNT_JSON` (путь к secret file)
+4. В Render внешний URL автоматически попадает в `RENDER_EXTERNAL_URL`, бот сам соберёт `WEBHOOK_URL = <ваш_render_url>/webhook`.
 
 Проверка здоровья: `GET /health` (возвращает `ok`).
 
@@ -79,6 +80,7 @@ python scripts/make_xlsx.py
 ## 4) Как работает запись
 
 Бот собирает:
+
 - имя
 - телефон
 - услугу
@@ -89,4 +91,3 @@ python scripts/make_xlsx.py
 ## 5) Переменные окружения
 
 Смотрите `.env.example`.
-
