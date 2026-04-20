@@ -49,5 +49,5 @@ def format_services(services: Iterable[Service], limit: int = 30) -> str:
             break
     if not lines:
         return "Прайс-лист пуст."
-    return "Вот примеры услуг:\n" + "\n".join(lines)
+    return "Вот наши услуги:\n" + "\n".join(lines)
 
