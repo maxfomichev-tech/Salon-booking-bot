@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import asyncio
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -64,6 +64,14 @@ def _match_service(services: list[Service], user_text: str) -> Service | None:
             return s
     return None
 
+async def send_typing_and_reply(message: Message, text: str, parse_mode=None):
+    """Отправляет статус 'печатает...' и затем сообщение."""
+    await message.bot.send_chat_action(
+        chat_id=message.chat.id,
+        action=ChatAction.TYPING
+    )
+    await asyncio.sleep(0.5)
+    await message.answer(text, parse_mode=parse_mode)
 
 async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
     await state.clear()
@@ -207,9 +215,9 @@ async def consult(message: Message, state: FSMContext, app: AppState) -> None:
         reply = app.consultant.reply(message.text or "")
     except Exception as e:
         logger.exception("Groq error")
-        await message.answer(f"Ошибка консультации. Попробуйте ещё раз.\n\n{e}")
+        await send_typing_and_reply(message, f"Ошибка консультации. Попробуйте ещё раз.\n\n{e}")
         return
-    await message.answer(reply)
+    await send_typing_and_reply(message, reply)
 
 
 async def maybe_start_booking(message: Message, state: FSMContext, app: AppState) -> None:
