@@ -23,9 +23,9 @@ from src.config import load_config
 from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aaron-salon-bot")
+
 
 class BookingFlow(StatesGroup):
     service = State()
@@ -44,27 +44,28 @@ def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
     """
     text = text.strip()
     now = datetime.now(ZoneInfo(tz))
-    
+
     # Формат: DD.MM HH:MM (без года)
     try:
         dt = datetime.strptime(text, "%d.%m %H:%M")
         return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
     except ValueError:
         pass
-    
+
     # Формат: DD.MM.YYYY HH:MM
     try:
         dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
         return dt.replace(tzinfo=ZoneInfo(tz))
     except ValueError:
         pass
-    
+
     # Стандартный формат: YYYY-MM-DD HH:MM
     try:
         dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
         return dt.replace(tzinfo=ZoneInfo(tz))
     except ValueError:
         return None
+
 
 @dataclass(frozen=True)
 class AppState:
@@ -83,14 +84,15 @@ def _match_service(services: list[Service], user_text: str) -> Service | None:
             return s
     return None
 
+
 async def send_typing_and_reply(message: Message, text: str, parse_mode=None):
     """Отправляет статус 'печатает...' и затем сообщение."""
     await message.bot.send_chat_action(
-        chat_id=message.chat.id,
-        action=ChatAction.TYPING
+        chat_id=message.chat.id, action=ChatAction.TYPING
     )
     await asyncio.sleep(0.5)
     await message.answer(text, parse_mode=parse_mode)
+
 
 async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
     await state.clear()
@@ -129,10 +131,16 @@ async def cmd_book(message: Message, state: FSMContext, app: AppState) -> None:
 async def book_service(message: Message, state: FSMContext, app: AppState) -> None:
     svc = _match_service(app.services, message.text or "")
     if not svc:
-        await message.answer("Не нашёл такую услугу. Напишите точнее, или /price чтобы посмотреть список.")
+        await message.answer(
+            "Не нашёл такую услугу. Напишите точнее, или /price чтобы посмотреть список."
+        )
         return
 
-    await state.update_data(service=svc.service, duration_minutes=svc.duration_minutes, price_rub=svc.price_rub)
+    await state.update_data(
+        service=svc.service,
+        duration_minutes=svc.duration_minutes,
+        price_rub=svc.price_rub,
+    )
     await state.set_state(BookingFlow.dt)
     await message.answer(
         "Отлично. Напишите дату и время.\n"
@@ -144,17 +152,21 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
         parse_mode=ParseMode.HTML,
     )
 
+
 async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
-        await message.answer("Не понял дату/время. Формат должен быть <code>YYYY-MM-DD HH:MM</code>.", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "Не понял дату/время. Формат должен быть <code>YYYY-MM-DD HH:MM</code>.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     # ПРОВЕРКА ЗАНЯТОСТИ
     data = await state.get_data()
     duration = int(data.get("duration_minutes", 60))
     end = dt + timedelta(minutes=duration)
-    
+
     try:
         if not app.calendar.is_time_available(dt, end):
             await message.answer(
@@ -185,7 +197,9 @@ async def book_name(message: Message, state: FSMContext) -> None:
 async def book_phone(message: Message, state: FSMContext) -> None:
     phone = (message.text or "").strip()
     if len(phone) < 6:
-        await message.answer("Похоже на слишком короткий номер. Напишите телефон ещё раз.")
+        await message.answer(
+            "Похоже на слишком короткий номер. Напишите телефон ещё раз."
+        )
         return
     await state.update_data(phone=phone)
     await state.set_state(BookingFlow.confirm)
@@ -193,19 +207,19 @@ async def book_phone(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     from datetime import datetime  # убедитесь, что импорт есть
 
-# ... внутри book_phone ...
+    # ... внутри book_phone ...
 
-start = datetime.fromisoformat(data['start_iso'])
-formatted_date = start.strftime("%d.%m.%Y %H:%M")
+    start = datetime.fromisoformat(data["start_iso"])
+    formatted_date = start.strftime("%d.%m.%Y %H:%M")
 
-await message.answer(
-    "Проверьте запись:\n"
-    f"- Услуга: {data['service']} ({data['duration_minutes']} мин, {data['price_rub']} ₽)\n"
-    f"- Когда: {formatted_date}\n"
-    f"- Имя: {data['client_name']}\n"
-    f"- Телефон: {data['phone']}\n\n"
-    "Ответьте «да» чтобы подтвердить или «нет» чтобы отменить."
-)
+    await message.answer(
+        "Проверьте запись:\n"
+        f"- Услуга: {data['service']} ({data['duration_minutes']} мин, {data['price_rub']} ₽)\n"
+        f"- Когда: {formatted_date}\n"
+        f"- Имя: {data['client_name']}\n"
+        f"- Телефон: {data['phone']}\n\n"
+        "Ответьте «да» чтобы подтвердить или «нет» чтобы отменить."
+    )
 
 
 async def book_confirm(message: Message, state: FSMContext, app: AppState) -> None:
@@ -243,21 +257,32 @@ async def consult(message: Message, state: FSMContext, app: AppState) -> None:
         reply = app.consultant.reply(message.text or "")
     except Exception as e:
         logger.exception("Groq error")
-        await send_typing_and_reply(message, f"Ошибка консультации. Попробуйте ещё раз.\n\n{e}")
+        await send_typing_and_reply(
+            message, f"Ошибка консультации. Попробуйте ещё раз.\n\n{e}"
+        )
         return
     await send_typing_and_reply(message, reply)
 
 
-async def maybe_start_booking(message: Message, state: FSMContext, app: AppState) -> None:
+async def maybe_start_booking(
+    message: Message, state: FSMContext, app: AppState
+) -> None:
     text = (message.text or "").strip().lower()
-    
-    booking_triggers = ["запиши", "записаться", "хочу записаться", "хочу на", "запись", "booking"]
-    
+
+    booking_triggers = [
+        "запиши",
+        "записаться",
+        "хочу записаться",
+        "хочу на",
+        "запись",
+        "booking",
+    ]
+
     for trigger in booking_triggers:
         if trigger in text:
             await cmd_book(message, state, app)
             return
-    
+
     await consult(message, state, app)
 
 
@@ -274,10 +299,16 @@ def main() -> None:
     )
     calendar = GoogleCalendarClient(
         calendar_id=cfg.google_calendar_id,
-        service_account_json_path=str(cfg.google_service_account_json_path) if cfg.google_service_account_json_path else None,
+        service_account_json_path=(
+            str(cfg.google_service_account_json_path)
+            if cfg.google_service_account_json_path
+            else None
+        ),
         service_account_json_content=cfg.google_service_account_json_content,
     )
-    app_state = AppState(cfg=cfg, services=services, consultant=consultant, calendar=calendar)
+    app_state = AppState(
+        cfg=cfg, services=services, consultant=consultant, calendar=calendar
+    )
 
     async def _run() -> None:
         bot = Bot(token=cfg.telegram_bot_token)
