@@ -7,8 +7,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import asyncio
-from aiogram import types
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -97,13 +96,13 @@ async def send_typing_and_reply(message: Message, text: str, parse_mode=None):
 async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
     await state.clear()
     await message.answer(
-        f"Здравствуйте! Это бот салона красоты <b>{app.cfg.salon_name}</b>.\n\n"
+        f"✨ Здравствуйте! Это бот салона красоты <b>{app.cfg.salon_name}</b>\n\n"
         "Я могу:\n"
-        "- подсказать по услугам и ценам\n"
-        "- записать вас в Google Calendar\n\n"
+        "- подсказать по услугам и ценам 📋\n"
+        "- записать вас в Google Calendar 📅\n\n"
         "Команды:\n"
         "/price — прайс-лист\n"
-        "/book — запись\n"
+        "/book — запись \n"
         "/help — помощь\n",
         parse_mode=ParseMode.HTML,
     )
@@ -123,7 +122,7 @@ async def cmd_book(message: Message, state: FSMContext, app: AppState) -> None:
     await state.set_state(BookingFlow.service)
     await state.update_data(draft={})
     await message.answer(
-        "Ок, давайте запишем вас. Напишите название услуги (как в прайсе). Например:\n"
+        "📝 Ок, давайте запишем вас. Напишите название услуги (как в прайсе). Например:\n"
         f"{app.services[0].service}"
     )
 
@@ -143,7 +142,7 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
     )
     await state.set_state(BookingFlow.dt)
     await message.answer(
-        "Отлично. Напишите дату и время.\n"
+        "✅ Отлично. Напишите дату и время.\n"
         f"Часовой пояс: {app.cfg.salon_timezone}\n"
         "Форматы:\n"
         "<code>25.04 15:30</code> — день.месяц время (текущий год)\n"
@@ -181,7 +180,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
 
     await state.update_data(start_iso=dt.isoformat())
     await state.set_state(BookingFlow.name)
-    await message.answer("Как вас зовут?")
+    await message.answer("😊 Как вас зовут?")
 
 
 async def book_name(message: Message, state: FSMContext) -> None:
@@ -191,7 +190,7 @@ async def book_name(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(client_name=name)
     await state.set_state(BookingFlow.phone)
-    await message.answer("Ваш телефон (например: +7 999 123-45-67)?")
+    await message.answer("📱 Ваш телефон (например: +7 999 123-45-67)?")
 
 
 async def book_phone(message: Message, state: FSMContext) -> None:
@@ -218,7 +217,7 @@ async def book_phone(message: Message, state: FSMContext) -> None:
         f"- Когда: {formatted_date}\n"
         f"- Имя: {data['client_name']}\n"
         f"- Телефон: {data['phone']}\n\n"
-        "Ответьте «да», чтобы подтвердить, или «нет», чтобы отменить."
+        "Ответьте «да» ✅ чтобы подтвердить или «нет» ❌ чтобы отменить."
     )
 
 
@@ -229,7 +228,7 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
         return
     if answer == "нет":
         await state.clear()
-        await message.answer("Ок, отменил. Если захотите — /book.")
+        await message.answer("❌ Ок, отменил. Если захотите — нажмите /book 📝")
         return
 
     data = await state.get_data()
@@ -245,16 +244,16 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
     )
     link = app.calendar.create_booking_event(booking)
     await state.clear()
-    await message.answer("Готово! Вы записаны.")
+    await message.answer("✅ Готово! Вы записаны! Ждём вас 💖")
 
     # Генерируем и отправляем .ics файл
     ics_content = app.calendar.generate_ics(booking)
     await message.answer_document(
         document=types.BufferedInputFile(
-            file=ics_content.encode('utf-8'),
-            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics"
+            file=ics_content.encode("utf-8"),
+            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics",
         ),
-        caption="Добавьте запись в свой календарь 📅"
+        caption="Добавьте запись в свой календарь 📅",
     )
 
 
@@ -304,6 +303,7 @@ def main() -> None:
         salon_name=cfg.salon_name,
         services_text=format_services(services, limit=60),
         address=cfg.address,
+        timezone=cfg.salon_timezone,
     )
     calendar = GoogleCalendarClient(
         calendar_id=cfg.google_calendar_id,
