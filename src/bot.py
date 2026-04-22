@@ -67,7 +67,7 @@ def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
 
 
 def _is_weekend(dt: datetime) -> bool:
-    """Проверяет, выпадает ли дата на субботу или воскресенье."""
+    """Проверяет, выпадает ли дата на субботу."""
     return dt.weekday() == 5  # 5 = суббота
 
 
@@ -104,7 +104,7 @@ async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
         f"✨ Здравствуйте! Это бот салона красоты <b>{app.cfg.salon_name}</b>\n\n"
         "Я могу:\n"
         "- подсказать по услугам и ценам 📋\n"
-        "- записать вас в Google Calendar 📅\n\n"
+        "- записать вас на услугу 📅\n\n"
         "Команды:\n"
         "/price — прайс-лист\n"
         "/book — запись \n"
@@ -116,7 +116,7 @@ async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
 
 async def cmd_help(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Напишите вопрос текстом или используйте /book для записи.")
+    await message.answer("📝 Напишите вопрос текстом или используйте /book для записи.")
 
 
 async def cmd_price(message: Message, app: AppState) -> None:
@@ -150,9 +150,9 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
         "✅ Отлично. Напишите дату и время.\n"
         f"Часовой пояс: {app.cfg.salon_timezone}\n"
         "Форматы:\n"
-        "<code>25.04 15:30</code> — день.месяц время (текущий год)\n"
-        "<code>25.04.2026 15:30</code> — с указанием года\n"
-        "<code>2026-04-25 15:30</code> — полная дата",
+        "<code>20.04 15:30</code> — день.месяц время (текущий год)\n"
+        "<code>20.04.2026 15:30</code> — с указанием года\n"
+        "<code>2026-04-20 15:30</code> — полная дата",
         parse_mode=ParseMode.HTML,
     )
 
@@ -161,7 +161,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>25.04 15:30</code> или <code>2026-04-25 15:30</code>",
+            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -171,7 +171,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
         await message.answer(
             "⚠️ Вы выбрали выходной день.\n"
             "Наш салон работает с воскресенья по пятницу.\n"
-            "Пожалуйста, выберите другую дату:"
+            "Пожалуйста, выберите другую дату."
         )
         return  # Остаёмся в состоянии BookingFlow.dt
 
