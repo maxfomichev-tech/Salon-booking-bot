@@ -65,9 +65,11 @@ def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
     except ValueError:
         return None
 
+
 def _is_weekend(dt: datetime) -> bool:
     """Проверяет, выпадает ли дата на субботу или воскресенье."""
     return dt.weekday() == 5  # 5 = суббота
+
 
 @dataclass(frozen=True)
 class AppState:
@@ -158,7 +160,10 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
 async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
-        await message.answer("Не понял дату/время. Форматы:\n<code>25.04 15:30</code> или <code>2026-04-25 15:30</code>", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "Не понял дату/время. Форматы:\n<code>25.04 15:30</code> или <code>2026-04-25 15:30</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     # Проверка на выходной
@@ -174,7 +179,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     data = await state.get_data()
     duration = int(data.get("duration_minutes", 60))
     end = dt + timedelta(minutes=duration)
-    
+
     try:
         if not app.calendar.is_time_available(dt, end):
             await message.answer(
@@ -257,10 +262,10 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
     ics_content = app.calendar.generate_ics(booking)
     await message.answer_document(
         document=types.BufferedInputFile(
-            file=ics_content.encode('utf-8'),
-            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics"
+            file=ics_content.encode("utf-8"),
+            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics",
         ),
-        caption="Добавьте запись в свой календарь 📅"
+        caption="Добавьте запись в свой календарь 📅",
     )
 
 
@@ -310,7 +315,7 @@ def main() -> None:
         salon_name=cfg.salon_name,
         services_text=format_services(services, limit=60),
         address=cfg.address,
-        timezone=cfg.salon_timezone,  
+        timezone=cfg.salon_timezone,
     )
     calendar = GoogleCalendarClient(
         calendar_id=cfg.google_calendar_id,
