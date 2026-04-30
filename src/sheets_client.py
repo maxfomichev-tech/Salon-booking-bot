@@ -19,6 +19,17 @@ class SheetsClient:
         self._client = gspread.authorize(creds)
         self._sheet = self._client.open_by_key(spreadsheet_id).sheet1
 
+    @staticmethod
+    def _as_plain_text(value: object) -> str:
+        """
+        Google Sheets может трактовать значения, начинающиеся с '+', '-', '=' как формулы.
+        Принудительно сохраняем как текст (через апостроф).
+        """
+        s = "" if value is None else str(value)
+        if s.startswith(("+", "-", "=")):
+            return "'" + s
+        return s
+
     def add_or_update(
         self,
         client_id: str,
@@ -42,29 +53,49 @@ class SheetsClient:
             row = cell.row
             
             # Обновляем существующего
-            self._sheet.update_cell(row, 5, now)  # last_contact
-            self._sheet.update_cell(row, 6, service_dt)  # last_service_date
-            self._sheet.update_cell(row, 7, service_name)  # last_service_name
+            # RAW + экранирование, чтобы '+' в телефоне не воспринимался формулой
+            self._sheet.update(
+                f"E{row}:G{row}",
+                [[
+                    self._as_plain_text(now),
+                    self._as_plain_text(service_dt),
+                    self._as_plain_text(service_name),
+                ]],
+                value_input_option="RAW",
+            )
             current_visits = int(self._sheet.cell(row, 8).value or 0)
-            self._sheet.update_cell(row, 8, current_visits + 1)  # total_visits
+            self._sheet.update(
+                f"H{row}:H{row}",
+                [[current_visits + 1]],
+                value_input_option="RAW",
+            )
             # Имя/телефон должны отражать актуальные данные клиента
-            self._sheet.update_cell(row, 2, name)
-            self._sheet.update_cell(row, 3, phone)
+            self._sheet.update(
+                f"B{row}:C{row}",
+                [[
+                    self._as_plain_text(name),
+                    self._as_plain_text(phone),
+                ]],
+                value_input_option="RAW",
+            )
         except Exception as e:
             if isinstance(e, LookupError) or (
                 cell_not_found_exc is not None and isinstance(e, cell_not_found_exc)
             ):
                 # Новый клиент
-                self._sheet.append_row([
-                    client_id,
-                    name,
-                    phone,
-                    now,  # first_contact
-                    now,  # last_contact
-                    service_dt,  # last_service_date
-                    service_name,
-                    1,    # total_visits
-                ])
+                self._sheet.append_row(
+                    [
+                        self._as_plain_text(client_id),
+                        self._as_plain_text(name),
+                        self._as_plain_text(phone),
+                        self._as_plain_text(now),  # first_contact
+                        self._as_plain_text(now),  # last_contact
+                        self._as_plain_text(service_dt),  # last_service_date
+                        self._as_plain_text(service_name),
+                        1,  # total_visits
+                    ],
+                    value_input_option="RAW",
+                )
                 return
             raise
 
