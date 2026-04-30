@@ -10,7 +10,6 @@ import json
 
 @dataclass(frozen=True)
 class Config:
-    google_sheets_id: str
     telegram_bot_token: str
     groq_api_key: str
     groq_model: str
@@ -21,6 +20,7 @@ class Config:
     salon_timezone: str
     salon_name: str
     address: str
+    google_sheets_id: str
 
 
 def _require(name: str) -> str:
@@ -36,6 +36,7 @@ def load_config() -> Config:
     services_csv = Path(os.getenv("SERVICES_CSV", "services_pricelist.csv"))
     sa_content = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT")
     sa_path_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    
 
     if sa_content:
         # Validate JSON early for clearer errors
@@ -58,5 +59,6 @@ def load_config() -> Config:
         salon_timezone=os.getenv("SALON_TIMEZONE", "Europe/Moscow"),
         salon_name=os.getenv("SALON_NAME", "Аарон"),
         address=os.getenv("ADDRESS", ""),
+        google_sheets_id=os.getenv("GOOGLE_SHEETS_ID", ""),
     )
 
