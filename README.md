@@ -50,6 +50,8 @@ copy .env.example .env
 1. (Опционально) Google Sheets для клиентов
 
 - В `.env` укажите `GOOGLE_SHEETS_ID`.
+  - Подготовьте Google Таблицу (можно пустую) и возьмите её ID из ссылки вида `.../spreadsheets/d/<ID>/...`
+  - Дайте доступ service account (email вида `...iam.gserviceaccount.com`) к этой таблице (хотя бы “Редактор”)
 
 1. Запуск:
 
