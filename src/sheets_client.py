@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import gspread
+from gspread.exceptions import CellNotFound
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 from typing import Optional
@@ -32,6 +33,8 @@ class SheetsClient:
         # Ищем клиента по ID
         try:
             cell = self._sheet.find(client_id)
+            if cell is None:
+                raise CellNotFound(f"Client id not found: {client_id}")
             row = cell.row
             
             # Обновляем существующего
@@ -40,7 +43,7 @@ class SheetsClient:
             self._sheet.update_cell(row, 7, service_name)  # last_service_name
             current_visits = int(self._sheet.cell(row, 8).value or 0)
             self._sheet.update_cell(row, 8, current_visits + 1)  # total_visits
-        except gspread.CellNotFound:
+        except CellNotFound:
             # Новый клиент
             self._sheet.append_row([
                 client_id,
@@ -56,6 +59,8 @@ class SheetsClient:
     def get_client(self, client_id: str) -> Optional[dict]:
         try:
             cell = self._sheet.find(client_id)
+            if cell is None:
+                raise CellNotFound(f"Client id not found: {client_id}")
             row = cell.row
             values = self._sheet.row_values(row)
             return {
@@ -68,5 +73,5 @@ class SheetsClient:
                 "last_service_name": values[6],
                 "total_visits": values[7],
             }
-        except gspread.CellNotFound:
+        except CellNotFound:
             return None
