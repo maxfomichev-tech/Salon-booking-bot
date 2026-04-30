@@ -21,6 +21,7 @@ from src.calendar_client import Booking, GoogleCalendarClient
 from src.config import load_config
 from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
+from src.clients import ClientsManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aaron-salon-bot")
@@ -77,6 +78,7 @@ class AppState:
     services: list[Service]
     consultant: GroqConsultant
     calendar: GoogleCalendarClient
+    clients: ClientsManager
 
 
 def _match_service(services: list[Service], user_text: str) -> Service | None:
@@ -161,7 +163,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>",
+            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>.\n Для продолжения диалога нажмите /start",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -216,10 +218,6 @@ async def book_phone(message: Message, state: FSMContext) -> None:
     await state.set_state(BookingFlow.confirm)
 
     data = await state.get_data()
-    from datetime import datetime  # убедитесь, что импорт есть
-
-    # ... внутри book_phone ...
-
     start = datetime.fromisoformat(data["start_iso"])
     formatted_date = start.strftime("%d.%m.%Y %H:%M")
 
@@ -257,6 +255,14 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
     link = app.calendar.create_booking_event(booking)
     await state.clear()
     await message.answer("✅ Готово! Вы записаны! Ждём вас 💖")
+
+    # Сохраняем клиента
+    app.clients.add_or_update(
+        client_id=str(message.from_user.id),
+        name=data["client_name"],
+        phone=data["phone"],
+        service_name=data["service"],
+    )
 
     # Генерируем и отправляем .ics файл
     ics_content = app.calendar.generate_ics(booking)
@@ -308,7 +314,7 @@ async def maybe_start_booking(
 def main() -> None:
     cfg = load_config()
     services = load_services(cfg.services_csv)
-
+    clients_manager = ClientsManager("clients.csv")
     consultant = GroqConsultant(
         api_key=cfg.groq_api_key,
         model=cfg.groq_model,
@@ -327,7 +333,11 @@ def main() -> None:
         service_account_json_content=cfg.google_service_account_json_content,
     )
     app_state = AppState(
-        cfg=cfg, services=services, consultant=consultant, calendar=calendar
+        cfg=cfg,
+        services=services,
+        consultant=consultant,
+        calendar=calendar,
+        clients=ClientsManager,
     )
 
     async def _run() -> None:

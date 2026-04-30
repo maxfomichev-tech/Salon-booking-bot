@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import uuid
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -84,20 +85,26 @@ class GoogleCalendarClient:
 
     def generate_ics(self, booking: Booking) -> str:
         """Генерирует .ics файл для клиента."""
+        uid = str(uuid.uuid4())
         dt_format = "%Y%m%dT%H%M%S"
         start_str = booking.start.strftime(dt_format)
         end_str = booking.end.strftime(dt_format)
 
-        ics = f"""BEGIN:VCALENDAR
-    VERSION:2.0
-    PRODID:-//{booking.salon_name}//RU
-    BEGIN:VEVENT
-    DTSTART;TZID={booking.timezone}:{start_str}
-    DTEND;TZID={booking.timezone}:{end_str}
-    SUMMARY:{booking.service_name} — {booking.salon_name}
-    DESCRIPTION:Клиент: {booking.client_name}\\nТелефон: {booking.phone}\\nУслуга: {booking.service_name}
-    LOCATION:{booking.salon_name}
-    END:VEVENT
-    END:VCALENDAR"""
+        lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            f"PRODID:-//{booking.salon_name}//RU",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            f"UID:{uid}@salon-bot",
+            f"DTSTART;TZID={booking.timezone}:{start_str}",
+            f"DTEND;TZID={booking.timezone}:{end_str}",
+            f"SUMMARY:{booking.service_name} — {booking.salon_name}",
+            f"DESCRIPTION:Клиент: {booking.client_name}\\nТелефон: {booking.phone}\\nУслуга: {booking.service_name}",
+            f"LOCATION:{booking.salon_name}",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ]
 
-        return ics
+        return "\r\n".join(lines)
