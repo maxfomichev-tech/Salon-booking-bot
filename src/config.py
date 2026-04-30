@@ -36,7 +36,14 @@ def load_config() -> Config:
     services_csv = Path(os.getenv("SERVICES_CSV", "services_pricelist.csv"))
     sa_content = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT")
     sa_path_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    
+
+    # Common deployment setups put the JSON content directly into
+    # GOOGLE_SERVICE_ACCOUNT_JSON (despite the name). Detect that.
+    if (not sa_content) and sa_path_raw:
+        v = sa_path_raw.strip()
+        if v.startswith("{") and v.endswith("}"):
+            sa_content = v
+            sa_path_raw = None
 
     if sa_content:
         # Validate JSON early for clearer errors
@@ -47,6 +54,14 @@ def load_config() -> Config:
             "Missing Google service account credentials. Set either "
             "GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT (JSON string) or GOOGLE_SERVICE_ACCOUNT_JSON (path)."
         )
+
+    if sa_path_raw:
+        p = Path(sa_path_raw)
+        if not p.exists():
+            raise RuntimeError(
+                "GOOGLE_SERVICE_ACCOUNT_JSON is set to a file path, but the file does not exist: "
+                f"{p}"
+            )
 
     return Config(
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN"),

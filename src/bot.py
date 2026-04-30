@@ -19,6 +19,7 @@ from aiohttp import web
 
 from src.calendar_client import Booking, GoogleCalendarClient
 from src.config import load_config
+from src.clients import ClientsManager
 from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
 from src.sheets_client import SheetsClient
@@ -314,10 +315,17 @@ async def maybe_start_booking(
 def main() -> None:
     cfg = load_config()
     services = load_services(cfg.services_csv)
-    clients_manager = SheetsClient(
-    spreadsheet_id=cfg.google_sheets_id,
-    credentials_json=cfg.google_service_account_json_content,
-)
+    credentials_json = cfg.google_service_account_json_content
+    if not credentials_json and cfg.google_service_account_json_path:
+        credentials_json = cfg.google_service_account_json_path.read_text(encoding="utf-8")
+
+    if cfg.google_sheets_id and credentials_json:
+        clients_manager = SheetsClient(
+            spreadsheet_id=cfg.google_sheets_id,
+            credentials_json=credentials_json,
+        )
+    else:
+        clients_manager = ClientsManager()
 
     consultant = GroqConsultant(
         api_key=cfg.groq_api_key,
@@ -342,7 +350,7 @@ def main() -> None:
         services=services,
         consultant=consultant,
         calendar=calendar,
-        clients=ClientsManager,
+        clients=clients_manager,
     )
 
     async def _run() -> None:
@@ -409,6 +417,14 @@ def main() -> None:
             await asyncio.Event().wait()
         else:
             logger.info("Bot starting in polling mode...")
+            if (os.getenv("RENDER_EXTERNAL_URL") or "").strip():
+                raise RuntimeError(
+                    "Refusing to start polling on Render. Set WEBHOOK_URL or ensure "
+                    "RENDER_EXTERNAL_URL is available so the bot can run in webhook mode."
+                )
+            # If the bot previously ran in webhook mode, Telegram will reject getUpdates.
+            # Make local/dev polling robust by disabling webhook first.
+            await bot.delete_webhook(drop_pending_updates=True)
             await dp.start_polling(bot)
 
     asyncio.run(_run())
