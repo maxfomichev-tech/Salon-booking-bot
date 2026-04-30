@@ -47,9 +47,11 @@ class ClientsManager:
         name: str,
         phone: str,
         service_name: str,
+        service_dt_iso: str | None = None,
     ) -> None:
         """Добавляет нового клиента или обновляет существующего."""
         now = datetime.now().isoformat()
+        service_dt = service_dt_iso or now
         rows = self._read_all()
         
         # Ищем по client_id
@@ -57,13 +59,12 @@ class ClientsManager:
             if row["client_id"] == str(client_id):
                 # Обновляем существующего
                 row["last_contact"] = now
-                row["last_service_date"] = now
+                row["last_service_date"] = service_dt
                 row["last_service_name"] = service_name
                 row["total_visits"] = str(int(row.get("total_visits", "0")) + 1)
-                if not row.get("name"):
-                    row["name"] = name
-                if not row.get("phone"):
-                    row["phone"] = phone
+                # Имя/телефон должны отражать актуальные данные клиента
+                row["name"] = name
+                row["phone"] = phone
                 self._write_all(rows)
                 return
         
@@ -74,7 +75,7 @@ class ClientsManager:
             "phone": phone,
             "first_contact": now,
             "last_contact": now,
-            "last_service_date": now,
+            "last_service_date": service_dt,
             "last_service_name": service_name,
             "total_visits": "1",
         })

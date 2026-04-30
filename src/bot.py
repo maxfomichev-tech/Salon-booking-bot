@@ -263,6 +263,7 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
         name=data["client_name"],
         phone=data["phone"],
         service_name=data["service"],
+        service_dt_iso=start.isoformat(),
     )
 
     # Генерируем и отправляем .ics файл

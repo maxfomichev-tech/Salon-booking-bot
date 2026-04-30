@@ -25,9 +25,11 @@ class SheetsClient:
         name: str,
         phone: str,
         service_name: str,
+        service_dt_iso: str | None = None,
     ) -> None:
         """Добавляет нового клиента или обновляет существующего."""
         now = datetime.now().isoformat()
+        service_dt = service_dt_iso or now
 
         # gspread exception names differ between versions; resolve dynamically.
         cell_not_found_exc = getattr(getattr(gspread, "exceptions", object()), "CellNotFound", None)
@@ -41,10 +43,13 @@ class SheetsClient:
             
             # Обновляем существующего
             self._sheet.update_cell(row, 5, now)  # last_contact
-            self._sheet.update_cell(row, 6, now)  # last_service_date
+            self._sheet.update_cell(row, 6, service_dt)  # last_service_date
             self._sheet.update_cell(row, 7, service_name)  # last_service_name
             current_visits = int(self._sheet.cell(row, 8).value or 0)
             self._sheet.update_cell(row, 8, current_visits + 1)  # total_visits
+            # Имя/телефон должны отражать актуальные данные клиента
+            self._sheet.update_cell(row, 2, name)
+            self._sheet.update_cell(row, 3, phone)
         except Exception as e:
             if isinstance(e, LookupError) or (
                 cell_not_found_exc is not None and isinstance(e, cell_not_found_exc)
@@ -56,7 +61,7 @@ class SheetsClient:
                     phone,
                     now,  # first_contact
                     now,  # last_contact
-                    now,  # last_service_date
+                    service_dt,  # last_service_date
                     service_name,
                     1,    # total_visits
                 ])
