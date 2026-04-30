@@ -104,7 +104,7 @@ async def send_typing_and_reply(message: Message, text: str, parse_mode=None):
 async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
     await state.clear()
     await message.answer(
-        f"✨ Здравствуйте! Это бот салона красоты <b>{app.cfg.salon_name}</b>\n\n"
+        f"✨ Здравствуйте! Здравствуйте! Я — Олег, ваш персональный консультант салона красоты <b>{app.cfg.salon_name}</b>\n\n"
         "Я могу:\n"
         "- подсказать по услугам и ценам 📋\n"
         "- записать вас на услугу 📅\n\n"
