@@ -21,7 +21,7 @@ from src.calendar_client import Booking, GoogleCalendarClient
 from src.config import load_config
 from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
-from src.clients import ClientsManager
+from src.sheets_client import SheetsClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aaron-salon-bot")
@@ -163,7 +163,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>.\n Для продолжения диалога нажмите /start",
+            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>\n, или нажмите /start для продолжегния консультации" ,
             parse_mode=ParseMode.HTML,
         )
         return
@@ -314,7 +314,11 @@ async def maybe_start_booking(
 def main() -> None:
     cfg = load_config()
     services = load_services(cfg.services_csv)
-    clients_manager = ClientsManager("clients.csv")
+    clients_manager = SheetsClient(
+    spreadsheet_id=cfg.google_sheets_id,
+    credentials_json=cfg.google_service_account_json_content,
+)
+
     consultant = GroqConsultant(
         api_key=cfg.groq_api_key,
         model=cfg.groq_model,
@@ -332,6 +336,7 @@ def main() -> None:
         ),
         service_account_json_content=cfg.google_service_account_json_content,
     )
+    
     app_state = AppState(
         cfg=cfg,
         services=services,

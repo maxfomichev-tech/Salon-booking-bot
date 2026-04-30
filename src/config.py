@@ -10,6 +10,7 @@ import json
 
 @dataclass(frozen=True)
 class Config:
+    google_sheets_id: str
     telegram_bot_token: str
     groq_api_key: str
     groq_model: str
