@@ -26,6 +26,8 @@ class SheetsClient:
         Принудительно сохраняем как текст (через апостроф).
         """
         s = "" if value is None else str(value)
+        if s.startswith("'"):
+            return s
         if s.startswith(("+", "-", "=")):
             return "'" + s
         return s
@@ -61,7 +63,7 @@ class SheetsClient:
                     self._as_plain_text(service_dt),
                     self._as_plain_text(service_name),
                 ]],
-                value_input_option="RAW",
+                value_input_option="USER_ENTERED",
             )
             current_visits = int(self._sheet.cell(row, 8).value or 0)
             self._sheet.update(
@@ -76,7 +78,7 @@ class SheetsClient:
                     self._as_plain_text(name),
                     self._as_plain_text(phone),
                 ]],
-                value_input_option="RAW",
+                value_input_option="USER_ENTERED",
             )
         except Exception as e:
             if isinstance(e, LookupError) or (
@@ -94,7 +96,7 @@ class SheetsClient:
                         self._as_plain_text(service_name),
                         1,  # total_visits
                     ],
-                    value_input_option="RAW",
+                    value_input_option="USER_ENTERED",
                 )
                 return
             raise
