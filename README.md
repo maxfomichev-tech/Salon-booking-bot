@@ -5,6 +5,7 @@
 - консультирует клиентов (через бесплатные модели Groq)
 - предлагает услуги и цены из прайс-листа
 - записывает клиента в Google Calendar
+- опционально ведёт базу клиентов в Google Sheets (или локально в `clients.csv`)
 
 ## 1) Что понадобится
 
@@ -12,6 +13,7 @@
 - Telegram Bot Token (у @BotFather)
 - Groq API key (из Groq Console)
 - Google Calendar, куда будем писать записи
+- (опционально) Google Sheets таблица для хранения клиентов
 
 ## 2) Быстрый старт
 
@@ -37,15 +39,17 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-1. Подготовить Google Calendar (вариант с service account)
+1. Подготовить Google (вариант с service account)
 
 - В Google Cloud Console создайте **Service Account** и скачайте ключ JSON.
-- Укажите креды одним из способов:
-  - `GOOGLE_SERVICE_ACCOUNT_JSON` — путь к JSON файлу
-  - `GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT` — содержимое JSON (удобно для Render)
+- Укажите credentials в `.env` (см. `.env.example`).
 - В Google Calendar (в вебе) откройте настройки календаря → **Доступ** → **Поделиться** и добавьте email service account (вида `xxx@yyy.iam.gserviceaccount.com`) с правом **Вносить изменения**.
 - В `.env` укажите `GOOGLE_CALENDAR_ID`:
   - обычно это email календаря, либо ID вида `...@group.calendar.google.com`.
+
+1. (Опционально) Google Sheets для клиентов
+
+- В `.env` укажите `GOOGLE_SHEETS_ID`.
 
 1. Запуск:
 
@@ -63,7 +67,8 @@ python -m src.bot
   - `TELEGRAM_BOT_TOKEN`
   - `GROQ_API_KEY`
   - `GOOGLE_CALENDAR_ID`
-  - `GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT` (JSON строкой в секрете) **или** `GOOGLE_SERVICE_ACCOUNT_JSON` (путь к secret file)
+  - `GOOGLE_SERVICE_ACCOUNT_JSON` **или** `GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT`
+  - (опционально) `GOOGLE_SHEETS_ID`
 4. В Render внешний URL автоматически попадает в `RENDER_EXTERNAL_URL`, бот сам соберёт `WEBHOOK_URL = <ваш_render_url>/webhook`.
 
 Проверка здоровья: `GET /health` (возвращает `ok`).
