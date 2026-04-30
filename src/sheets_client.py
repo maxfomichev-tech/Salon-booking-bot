@@ -20,6 +20,30 @@ class SheetsClient:
         self._sheet = self._client.open_by_key(spreadsheet_id).sheet1
 
     @staticmethod
+    def _is_meaningful_identity_value(value: str) -> bool:
+        """
+        Защита от затирания имени/телефона мусорными значениями.
+        """
+        v = (value or "").strip()
+        if not v:
+            return False
+
+        lowered = v.lower()
+        placeholders = {
+            "-",
+            "—",
+            "нет",
+            "не знаю",
+            "не помню",
+            "аноним",
+            "unknown",
+            "n/a",
+            "na",
+            "none",
+        }
+        return lowered not in placeholders
+
+    @staticmethod
     def _as_plain_text(value: object) -> str:
         """
         Google Sheets может трактовать значения, начинающиеся с '+', '-', '=' как формулы.
@@ -71,15 +95,30 @@ class SheetsClient:
                 [[current_visits + 1]],
                 value_input_option="RAW",
             )
-            # Имя/телефон должны отражать актуальные данные клиента
-            self._sheet.update(
-                f"B{row}:C{row}",
-                [[
-                    self._as_plain_text(name),
-                    self._as_plain_text(phone),
-                ]],
-                value_input_option="USER_ENTERED",
-            )
+
+            # Имя/телефон обновляем только если пришли осмысленные значения,
+            # чтобы не затирать существующие данные пустыми/мусорными ответами.
+            existing = self._sheet.row_values(row)
+            existing_name = (existing[1] if len(existing) > 1 else "").strip()
+            existing_phone = (existing[2] if len(existing) > 2 else "").strip()
+
+            name_to_write = name.strip() if self._is_meaningful_identity_value(name) else ""
+            phone_to_write = phone.strip() if self._is_meaningful_identity_value(phone) else ""
+
+            should_update_name = bool(name_to_write) and name_to_write != existing_name
+            should_update_phone = bool(phone_to_write) and phone_to_write != existing_phone
+
+            if should_update_name or should_update_phone:
+                final_name = name_to_write if should_update_name else existing_name
+                final_phone = phone_to_write if should_update_phone else existing_phone
+                self._sheet.update(
+                    f"B{row}:C{row}",
+                    [[
+                        self._as_plain_text(final_name),
+                        self._as_plain_text(final_phone),
+                    ]],
+                    value_input_option="USER_ENTERED",
+                )
         except Exception as e:
             if isinstance(e, LookupError) or (
                 cell_not_found_exc is not None and isinstance(e, cell_not_found_exc)

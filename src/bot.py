@@ -104,7 +104,7 @@ async def send_typing_and_reply(message: Message, text: str, parse_mode=None):
 async def cmd_start(message: Message, state: FSMContext, app: AppState) -> None:
     await state.clear()
     await message.answer(
-        f"✨ Здравствуйте! Здравствуйте! Я — Олег, ваш персональный консультант салона красоты <b>{app.cfg.salon_name}</b>\n\n"
+        f"✨ Здравствуйте! Я — Олег, ваш персональный консультант салона красоты <b>{app.cfg.salon_name}</b>\n\n"
         "Я могу:\n"
         "- подсказать по услугам и ценам 📋\n"
         "- записать вас на услугу 📅\n\n"
@@ -164,7 +164,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>,\nили нажмите /start для продолжения консультации" ,
+            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>,\nили нажмите /help для продолжения консультации" ,
             parse_mode=ParseMode.HTML,
         )
         return
@@ -205,7 +205,7 @@ async def book_name(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(client_name=name)
     await state.set_state(BookingFlow.phone)
-    await message.answer("📱 Ваш телефон (например: +7 999 123-45-67)?")
+    await message.answer("📱 Ваш телефон (например: +7 999 1234567)?")
 
 
 async def book_phone(message: Message, state: FSMContext) -> None:
