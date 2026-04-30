@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import gspread
-from gspread.exceptions import CellNotFound
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 from typing import Optional
@@ -29,12 +28,15 @@ class SheetsClient:
     ) -> None:
         """Добавляет нового клиента или обновляет существующего."""
         now = datetime.now().isoformat()
-        
+
+        # gspread exception names differ between versions; resolve dynamically.
+        cell_not_found_exc = getattr(getattr(gspread, "exceptions", object()), "CellNotFound", None)
+
         # Ищем клиента по ID
         try:
             cell = self._sheet.find(client_id)
             if cell is None:
-                raise CellNotFound(f"Client id not found: {client_id}")
+                raise LookupError(f"Client id not found: {client_id}")
             row = cell.row
             
             # Обновляем существующего
@@ -43,24 +45,30 @@ class SheetsClient:
             self._sheet.update_cell(row, 7, service_name)  # last_service_name
             current_visits = int(self._sheet.cell(row, 8).value or 0)
             self._sheet.update_cell(row, 8, current_visits + 1)  # total_visits
-        except CellNotFound:
-            # Новый клиент
-            self._sheet.append_row([
-                client_id,
-                name,
-                phone,
-                now,  # first_contact
-                now,  # last_contact
-                now,  # last_service_date
-                service_name,
-                1,    # total_visits
-            ])
+        except Exception as e:
+            if isinstance(e, LookupError) or (
+                cell_not_found_exc is not None and isinstance(e, cell_not_found_exc)
+            ):
+                # Новый клиент
+                self._sheet.append_row([
+                    client_id,
+                    name,
+                    phone,
+                    now,  # first_contact
+                    now,  # last_contact
+                    now,  # last_service_date
+                    service_name,
+                    1,    # total_visits
+                ])
+                return
+            raise
 
     def get_client(self, client_id: str) -> Optional[dict]:
+        cell_not_found_exc = getattr(getattr(gspread, "exceptions", object()), "CellNotFound", None)
         try:
             cell = self._sheet.find(client_id)
             if cell is None:
-                raise CellNotFound(f"Client id not found: {client_id}")
+                raise LookupError(f"Client id not found: {client_id}")
             row = cell.row
             values = self._sheet.row_values(row)
             return {
@@ -73,5 +81,9 @@ class SheetsClient:
                 "last_service_name": values[6],
                 "total_visits": values[7],
             }
-        except CellNotFound:
-            return None
+        except Exception as e:
+            if isinstance(e, LookupError) or (
+                cell_not_found_exc is not None and isinstance(e, cell_not_found_exc)
+            ):
+                return None
+            raise
