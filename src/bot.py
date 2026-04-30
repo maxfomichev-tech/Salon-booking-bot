@@ -164,7 +164,7 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>\n, или нажмите /start для продолжегния консультации" ,
+            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>,\nили нажмите /start для продолжения консультации" ,
             parse_mode=ParseMode.HTML,
         )
         return
