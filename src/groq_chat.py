@@ -11,7 +11,7 @@ SYSTEM_PROMPT_RU = """Ты — Олег, администратор салона
 ВАЖНО: 
 - Если клиент говорит "завтра", "послезавтра" — считай относительно сегодняшней даты.
 - Не выдумывай даты — используй сегодняшнюю дату как опорную точку.
-- Часы работы: с 10 до 20, кроме субботы. С воскресенья по пятницу салон открыт.
+- Часы работы: с {work_start} до {work_end}, кроме субботы. С воскресенья по пятницу салон открыт.
 
 Твоя задача: кратко и вежливо консультировать клиента по услугам, ценам, длительности, уходу и подготовке.
 Если клиент хочет записаться, попроси: услугу, дату, время, имя и телефон.
@@ -33,6 +33,8 @@ class GroqConsultant:
         services_text: str,
         address: str,
         timezone: str = "Europe/Moscow",
+        work_start_hour: int = 10,
+        work_end_hour: int = 20,
     ) -> None:
         self._client = Groq(api_key=api_key)
         self._model = model
@@ -40,6 +42,8 @@ class GroqConsultant:
         self._services_text = services_text
         self._address = address
         self._timezone = timezone
+        self._work_start_hour = work_start_hour
+        self._work_end_hour = work_end_hour
 
     def _get_datetime_context(self) -> tuple[str, str]:
         """Возвращает актуальную дату и день недели."""
@@ -70,6 +74,8 @@ class GroqConsultant:
             current_date=current_date,
             weekday=weekday_ru,
             timezone=self._timezone,
+            work_start=self._work_start_hour,
+            work_end=self._work_end_hour,
         )
 
         resp = self._client.chat.completions.create(

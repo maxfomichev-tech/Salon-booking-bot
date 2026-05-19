@@ -26,3 +26,7 @@ services:
       # If empty, Render external URL will be used automatically.
       - key: WEBHOOK_URL
         sync: false
+      - key: WORK_START_HOUR
+        value: 10
+      - key: WORK_END_HOUR
+        value: 20

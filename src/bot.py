@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,7 +14,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
@@ -24,11 +25,12 @@ from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
 from src.sheets_client import SheetsClient
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 logger = logging.getLogger("aaron-salon-bot")
 
 
 class BookingFlow(StatesGroup):
+    category = State()
     service = State()
     dt = State()
     name = State()
@@ -37,30 +39,39 @@ class BookingFlow(StatesGroup):
 
 
 def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
-    """
-    Парсер даты: поддерживает:
-    - DD.MM HH:MM (подставляет текущий год)
-    - DD.MM.YYYY HH:MM (полная дата)
-    - YYYY-MM-DD HH:MM (стандартный формат)
-    """
     text = text.strip()
     now = datetime.now(ZoneInfo(tz))
 
-    # Формат: DD.MM HH:MM (без года)
+    try:
+        dt = datetime.strptime(text, "%d.%m")
+        return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
+    except ValueError:
+        pass
+
+    try:
+        dt = datetime.strptime(text, "%d.%m.%Y")
+        return dt.replace(tzinfo=ZoneInfo(tz))
+    except ValueError:
+        pass
+
+    try:
+        dt = datetime.strptime(text, "%Y-%m-%d")
+        return dt.replace(tzinfo=ZoneInfo(tz))
+    except ValueError:
+        pass
+
     try:
         dt = datetime.strptime(text, "%d.%m %H:%M")
         return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
     except ValueError:
         pass
 
-    # Формат: DD.MM.YYYY HH:MM
     try:
         dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
         return dt.replace(tzinfo=ZoneInfo(tz))
     except ValueError:
         pass
 
-    # Стандартный формат: YYYY-MM-DD HH:MM
     try:
         dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
         return dt.replace(tzinfo=ZoneInfo(tz))
@@ -69,8 +80,64 @@ def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
 
 
 def _is_weekend(dt: datetime) -> bool:
-    """Проверяет, выпадает ли дата на субботу."""
-    return dt.weekday() == 5  # 5 = суббота
+    return dt.weekday() == 5  # только суббота
+
+
+def _is_outside_work_hours(dt: datetime, work_start: int, work_end: int) -> bool:
+    return dt.hour < work_start or dt.hour >= work_end
+
+
+def _format_work_hours(work_start: int, work_end: int) -> str:
+    return f"{work_start:02d}:00–{work_end:02d}:00"
+
+
+def _categories_keyboard(services: list[Service]) -> InlineKeyboardMarkup:
+    cats = sorted({s.category for s in services})
+    kb = [[InlineKeyboardButton(text=cat, callback_data=f"cat:{cat}")] for cat in cats]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def _services_keyboard(services: list[Service], category: str, page: int = 0) -> InlineKeyboardMarkup:
+    cat_svcs = [(i, s) for i, s in enumerate(services) if s.category == category]
+    PER_PAGE = 8
+    total = (len(cat_svcs) + PER_PAGE - 1) // PER_PAGE
+    start = page * PER_PAGE
+    items = cat_svcs[start:start + PER_PAGE]
+
+    kb = [[InlineKeyboardButton(text=s.label, callback_data=f"svc:{orig_i}")] for orig_i, s in items]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="← Назад", callback_data=f"page:{page - 1}"))
+    if page < total - 1:
+        nav.append(InlineKeyboardButton(text="Ещё →", callback_data=f"page:{page + 1}"))
+    if nav:
+        kb.append(nav)
+    kb.append([InlineKeyboardButton(text="← К категориям", callback_data="back:cat")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def _time_slots_keyboard(work_start: int, work_end: int) -> InlineKeyboardMarkup:
+    slots = list(range(work_start, work_end, 2))
+    kb = []
+    row = []
+    for h in slots:
+        row.append(InlineKeyboardButton(text=f"{h:02d}:00", callback_data=f"time:{h:02d}:00"))
+        if len(row) == 3:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    kb.append([InlineKeyboardButton(text="⌨️ Другое время", callback_data="time:other")])
+    kb.append([InlineKeyboardButton(text="← Назад", callback_data="back:dt")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def _confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, записать", callback_data="confirm:yes")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="confirm:no")],
+    ])
 
 
 @dataclass(frozen=True)
@@ -127,19 +194,35 @@ async def cmd_price(message: Message, app: AppState) -> None:
 
 
 async def cmd_book(message: Message, state: FSMContext, app: AppState) -> None:
-    await state.set_state(BookingFlow.service)
+    await state.set_state(BookingFlow.category)
     await state.update_data(draft={})
     await message.answer(
-        "📝 Ок, давайте запишем вас. Напишите название услуги (как в прайсе). Например:\n"
-        f"{app.services[0].service}"
+        "📝 Ок, давайте запишем вас. Выберите категорию или напишите название услуги:",
+        reply_markup=_categories_keyboard(app.services),
     )
 
 
 async def book_service(message: Message, state: FSMContext, app: AppState) -> None:
+    category = None
+    for cat in sorted({s.category for s in app.services}):
+        if cat.lower() in (message.text or "").lower():
+            category = cat
+            break
+    if category and not _match_service(app.services, message.text or ""):
+        await state.update_data(category=category)
+        await state.set_state(BookingFlow.service)
+        await message.answer(
+            f"📌 {category}. Выберите услугу:",
+            reply_markup=_services_keyboard(app.services, category),
+        )
+        return
+
     svc = _match_service(app.services, message.text or "")
     if not svc:
         await message.answer(
-            "Не нашёл такую услугу. Напишите точнее, или /price чтобы посмотреть список."
+            "Не нашёл такую услугу. Выберите категорию:\n"
+            "или нажмите /help для продолжения консультации",
+            reply_markup=_categories_keyboard(app.services),
         )
         return
 
@@ -150,12 +233,8 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
     )
     await state.set_state(BookingFlow.dt)
     await message.answer(
-        "✅ Отлично. Напишите дату и время.\n"
-        f"Часовой пояс: {app.cfg.salon_timezone}\n"
-        "Форматы:\n"
-        "<code>20.04 15:30</code> — день.месяц время (текущий год)\n"
-        "<code>20.04.2026 15:30</code> — с указанием года\n"
-        "<code>2026-04-20 15:30</code> — полная дата",
+        "✅ Отлично. Напишите дату. Например: <code>20.06</code>\n"
+        f"Часовой пояс: {app.cfg.salon_timezone}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -164,21 +243,40 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     dt = _parse_datetime_ru(message.text or "", app.cfg.salon_timezone)
     if not dt:
         await message.answer(
-            "Не понял дату/время. Форматы:\n<code>20.04 15:30</code> или <code>2026-04-20 15:30</code>,\nили нажмите /help для продолжения консультации" ,
+            "Не понял дату. Напишите в формате <code>20.06</code> (день.месяц) или <code>20.06 15:30</code>\n"
+            "или нажмите /help для продолжения консультации",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    # Проверка на выходной
+    time_specified = any(c.isdigit() for c in message.text.split()[-1]) if len(message.text.split()) >= 2 else False
+    has_time = len(message.text.split()) >= 2 and (":" in message.text.split()[-1] or time_specified)
+
+    if not has_time:
+        dt_midnight = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        await state.update_data(selected_date_iso=dt_midnight.isoformat())
+        await message.answer(
+            f"📅 {dt.strftime('%d.%m.%Y')}. Выберите время:",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+        )
+        return
+
     if _is_weekend(dt):
         await message.answer(
             "⚠️ Вы выбрали выходной день.\n"
-            "Наш салон работает с воскресенья по пятницу.\n"
-            "Пожалуйста, выберите другую дату."
+            "Салон работает с воскресенья по пятницу.\n"
+            "Пожалуйста, выберите другую дату или нажмите /help для выхода."
         )
-        return  # Остаёмся в состоянии BookingFlow.dt
+        return
 
-    # Проверка занятости (ваш существующий код)
+    if _is_outside_work_hours(dt, app.cfg.work_start_hour, app.cfg.work_end_hour):
+        await message.answer(
+            f"⚠️ Салон работает с {_format_work_hours(app.cfg.work_start_hour, app.cfg.work_end_hour)}.\n"
+            f"Вы выбрали {dt.strftime('%H:%M')}. Пожалуйста, выберите время в рабочие часы\n"
+            "или нажмите /help для выхода."
+        )
+        return
+
     data = await state.get_data()
     duration = int(data.get("duration_minutes", 60))
     end = dt + timedelta(minutes=duration)
@@ -187,7 +285,8 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
         if not app.calendar.is_time_available(dt, end):
             await message.answer(
                 f"⚠️ К сожалению, время {dt.strftime('%H:%M')} уже занято.\n"
-                "Пожалуйста, выберите другое время:"
+                "Пожалуйста, выберите другое время\n"
+                "или нажмите /help для выхода."
             )
             return
     except Exception as e:
@@ -201,7 +300,10 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
 async def book_name(message: Message, state: FSMContext) -> None:
     name = (message.text or "").strip()
     if len(name) < 2:
-        await message.answer("Имя слишком короткое. Напишите ещё раз.")
+        await message.answer(
+            "Имя слишком короткое. Напишите ещё раз\n"
+            "или нажмите /help для выхода."
+        )
         return
     await state.update_data(client_name=name)
     await state.set_state(BookingFlow.phone)
@@ -212,7 +314,8 @@ async def book_phone(message: Message, state: FSMContext) -> None:
     phone = (message.text or "").strip()
     if len(phone) < 6:
         await message.answer(
-            "Похоже на слишком короткий номер. Напишите телефон ещё раз."
+            "Похоже на слишком короткий номер. Напишите телефон ещё раз\n"
+            "или нажмите /help для выхода."
         )
         return
     await state.update_data(phone=phone)
@@ -227,21 +330,12 @@ async def book_phone(message: Message, state: FSMContext) -> None:
         f"- Услуга: {data['service']} ({data['duration_minutes']} мин, {data['price_rub']} ₽)\n"
         f"- Когда: {formatted_date}\n"
         f"- Имя: {data['client_name']}\n"
-        f"- Телефон: {data['phone']}\n\n"
-        "Ответьте «да» ✅ чтобы подтвердить или «нет» ❌ чтобы отменить."
+        f"- Телефон: {data['phone']}",
+        reply_markup=_confirm_keyboard(),
     )
 
 
-async def book_confirm(message: Message, state: FSMContext, app: AppState) -> None:
-    answer = (message.text or "").strip().lower()
-    if answer not in {"да", "нет"}:
-        await message.answer("Ответьте «да» или «нет».")
-        return
-    if answer == "нет":
-        await state.clear()
-        await message.answer("❌ Ок, отменил. Если захотите — нажмите /book 📝")
-        return
-
+async def confirm_booking(msg: Message, state: FSMContext, app: AppState, user_id: str | None = None) -> None:
     data = await state.get_data()
     start = datetime.fromisoformat(data["start_iso"])
     booking = Booking(
@@ -253,28 +347,178 @@ async def book_confirm(message: Message, state: FSMContext, app: AppState) -> No
         timezone=app.cfg.salon_timezone,
         salon_name=app.cfg.salon_name,
     )
-    link = app.calendar.create_booking_event(booking)
+
+    try:
+        link = app.calendar.create_booking_event(booking)
+        logger.info("Calendar event created: %s", link)
+    except Exception as e:
+        logger.error("Error creating calendar event: %s", e)
+        link = ""
+
     await state.clear()
-    await message.answer("✅ Готово! Вы записаны! Ждём вас 💖")
+    await msg.answer("✅ Готово! Вы записаны! Ждём вас 💖")
 
-    # Сохраняем клиента
-    app.clients.add_or_update(
-        client_id=str(message.from_user.id),
-        name=data["client_name"],
-        phone=data["phone"],
-        service_name=data["service"],
-        service_dt_iso=start.isoformat(),
-    )
+    try:
+        app.clients.add_or_update(
+            client_id=user_id or str(msg.from_user.id),
+            name=data["client_name"],
+            phone=str(data["phone"]),
+            service_name=data["service"],
+            service_dt_iso=start.isoformat(),
+        )
+        logger.info("Client saved: %s", msg.from_user.id)
+    except Exception as e:
+        logger.error("Error saving client: %s", e)
 
-    # Генерируем и отправляем .ics файл
-    ics_content = app.calendar.generate_ics(booking)
-    await message.answer_document(
-        document=types.BufferedInputFile(
-            file=ics_content.encode("utf-8"),
-            filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics",
-        ),
-        caption="Добавьте запись в свой календарь 📅",
+    try:
+        ics_content = app.calendar.generate_ics(booking)
+        await msg.answer_document(
+            document=types.BufferedInputFile(
+                file=ics_content.encode("utf-8"),
+                filename=f"booking_{booking.start.strftime('%d%m%Y')}.ics",
+            ),
+            caption="Добавьте запись в свой календарь 📅",
+        )
+    except Exception as e:
+        logger.error("Error sending ics: %s", e)
+
+
+async def book_confirm_text(message: Message, state: FSMContext, app: AppState) -> None:
+    answer = (message.text or "").strip().lower()
+    if answer not in {"да", "нет"}:
+        await message.answer("Ответьте «да» или «нет».", reply_markup=_confirm_keyboard())
+        return
+    if answer == "нет":
+        await state.clear()
+        await message.answer("❌ Отменил. Если захотите — /book")
+        return
+    await confirm_booking(message, state, app)
+
+
+async def handle_category_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    cat = cq.data.split(":", 1)[1]
+    await state.update_data(category=cat)
+    await state.set_state(BookingFlow.service)
+    await cq.message.edit_text(
+        f"📌 {cat}. Выберите услугу:",
+        reply_markup=_services_keyboard(app.services, cat),
     )
+    await cq.answer()
+
+
+async def handle_service_page_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    page = int(cq.data.split(":", 1)[1])
+    data = await state.get_data()
+    cat = data.get("category", "")
+    await cq.message.edit_reply_markup(reply_markup=_services_keyboard(app.services, cat, page))
+    await cq.answer()
+
+
+async def handle_service_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    idx = int(cq.data.split(":", 1)[1])
+    svc = app.services[idx]
+    await state.update_data(
+        service=svc.service,
+        duration_minutes=svc.duration_minutes,
+        price_rub=svc.price_rub,
+    )
+    await state.set_state(BookingFlow.dt)
+    await cq.message.edit_text(
+        "✅ Отлично. Напишите дату. Например: <code>20.06</code>\n"
+        f"Часовой пояс: {app.cfg.salon_timezone}",
+        parse_mode=ParseMode.HTML,
+    )
+    await cq.answer()
+
+
+async def handle_time_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    data = await state.get_data()
+    selected_date_iso = data.get("selected_date_iso")
+    if not selected_date_iso:
+        await cq.message.answer("Сначала напишите дату.")
+        await cq.answer()
+        return
+
+    time_part = cq.data.split(":", 1)[1]
+    if time_part == "other":
+        await cq.message.edit_text(
+            "Напишите дату и время полностью. Например: <code>20.06 15:30</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        await cq.answer()
+        return
+
+    hour, minute = map(int, time_part.split(":"))
+    dt = datetime.fromisoformat(selected_date_iso).replace(hour=hour, minute=minute)
+
+    if _is_weekend(dt):
+        await cq.message.answer(
+            "⚠️ Вы выбрали выходной день.\n"
+            "Салон работает с воскресенья по пятницу. Выберите другую дату\n"
+            "или нажмите /help для выхода.",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+        )
+        await cq.answer()
+        return
+
+    if _is_outside_work_hours(dt, app.cfg.work_start_hour, app.cfg.work_end_hour):
+        await cq.message.answer(
+            f"⚠️ Салон работает с {_format_work_hours(app.cfg.work_start_hour, app.cfg.work_end_hour)}.\n"
+            f"Вы выбрали {dt.strftime('%H:%M')}. Пожалуйста, выберите время в рабочие часы\n"
+            "или нажмите /help для выхода.",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+        )
+        await cq.answer()
+        return
+
+    duration = int(data.get("duration_minutes", 60))
+    end = dt + timedelta(minutes=duration)
+
+    try:
+        if not app.calendar.is_time_available(dt, end):
+            await cq.message.answer(
+                f"⚠️ К сожалению, время {dt.strftime('%H:%M')} уже занято. Выберите другое\n"
+                "или нажмите /help для выхода:",
+                reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+            )
+            await cq.answer()
+            return
+    except Exception as e:
+        logger.error("Error checking availability: %s", e)
+
+    await state.update_data(start_iso=dt.isoformat())
+    await state.set_state(BookingFlow.name)
+    await cq.message.edit_text("😊 Как вас зовут?")
+    await cq.answer()
+
+
+async def handle_back_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    target = cq.data.split(":", 1)[1]
+    if target == "cat":
+        await state.set_state(BookingFlow.category)
+        await cq.message.edit_text(
+            "Выберите категорию или напишите название услуги:",
+            reply_markup=_categories_keyboard(app.services),
+        )
+    elif target == "dt":
+        await state.set_state(BookingFlow.dt)
+        await cq.message.edit_text(
+            "Напишите дату. Например: <code>20.06</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    await cq.answer()
+
+
+async def handle_confirm_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    answer = cq.data.split(":", 1)[1]
+    if answer == "no":
+        await state.clear()
+        await cq.message.edit_text("❌ Отменил. Если захотите — /book")
+        await cq.answer()
+        return
+
+    await confirm_booking(cq.message, state, app, user_id=str(cq.from_user.id))
+    await cq.answer()
 
 
 async def consult(message: Message, state: FSMContext, app: AppState) -> None:
@@ -335,6 +579,8 @@ def main() -> None:
         services_text=format_services(services, limit=60),
         address=cfg.address,
         timezone=cfg.salon_timezone,
+        work_start_hour=cfg.work_start_hour,
+        work_end_hour=cfg.work_end_hour,
     )
     calendar = GoogleCalendarClient(
         calendar_id=cfg.google_calendar_id,
@@ -355,8 +601,14 @@ def main() -> None:
     )
 
     async def _run() -> None:
+        print("BOT_STARTING", flush=True)
         bot = Bot(token=cfg.telegram_bot_token)
         dp = Dispatcher(storage=MemoryStorage())
+
+        @dp.callback_query.middleware()
+        async def log_callback_query(handler, event, data):
+            print(f"CALLBACK_MW: data={event.data}", flush=True)
+            return await handler(event, data)
 
         async def _cmd_start(message: Message, state: FSMContext) -> None:
             await cmd_start(message, state, app_state)
@@ -373,22 +625,65 @@ def main() -> None:
         async def _book_dt(message: Message, state: FSMContext) -> None:
             await book_dt(message, state, app_state)
 
-        async def _book_confirm(message: Message, state: FSMContext) -> None:
-            await book_confirm(message, state, app_state)
+        async def _book_confirm_text(message: Message, state: FSMContext) -> None:
+            await book_confirm_text(message, state, app_state)
 
         async def _maybe_start_booking(message: Message, state: FSMContext) -> None:
             await maybe_start_booking(message, state, app_state)
+
+        async def _handle_callback(cq: CallbackQuery, state: FSMContext) -> None:
+            if not cq.data:
+                await cq.answer()
+                return
+            try:
+                data = cq.data
+                st = await state.get_state()
+                logger.info("Callback: data=%s state=%s", data, st)
+
+                if data.startswith("cat:"):
+                    if st == BookingFlow.category.state:
+                        await handle_category_cb(cq, state, app_state)
+                        return
+                elif data.startswith("svc:"):
+                    if st == BookingFlow.service.state:
+                        await handle_service_cb(cq, state, app_state)
+                        return
+                elif data.startswith("page:"):
+                    if st == BookingFlow.service.state:
+                        await handle_service_page_cb(cq, state, app_state)
+                        return
+                elif data.startswith("back:"):
+                    if st in (BookingFlow.service.state, BookingFlow.dt.state):
+                        await handle_back_cb(cq, state, app_state)
+                        return
+                elif data.startswith("time:"):
+                    if st == BookingFlow.dt.state:
+                        await handle_time_cb(cq, state, app_state)
+                        return
+                elif data.startswith("confirm:"):
+                    if st == BookingFlow.confirm.state:
+                        await handle_confirm_cb(cq, state, app_state)
+                        return
+
+                logger.warning("Unhandled callback: %s (state: %s)", data, st)
+                await cq.answer("⚠️ Кнопка устарела. Начните /book заново.")
+            except Exception as e:
+                logger.exception("Callback error: data=%s", cq.data)
+                await cq.answer("⚠️ Ошибка. Попробуйте /book заново.")
 
         dp.message.register(_cmd_start, Command("start"))
         dp.message.register(cmd_help, Command("help"))
         dp.message.register(_cmd_price, Command("price"))
         dp.message.register(_cmd_book, Command("book"))
 
+        dp.message.register(_book_service, BookingFlow.category, F.text)
         dp.message.register(_book_service, BookingFlow.service, F.text)
         dp.message.register(_book_dt, BookingFlow.dt, F.text)
         dp.message.register(book_name, BookingFlow.name, F.text)
         dp.message.register(book_phone, BookingFlow.phone, F.text)
-        dp.message.register(_book_confirm, BookingFlow.confirm, F.text)
+        dp.message.register(_book_confirm_text, BookingFlow.confirm, F.text)
+
+        dp.callback_query.register(_handle_callback)
 
         dp.message.register(_maybe_start_booking, F.text)
 
@@ -400,13 +695,17 @@ def main() -> None:
             webhook_url = f"{render_external_url.rstrip('/')}/webhook"
 
         if webhook_url:
-            await bot.set_webhook(webhook_url)
+            await bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"],
+            )
+            wh_info = await bot.get_webhook_info()
+            logger.info("Webhook set: url=%s allowed_updates=%s", wh_info.url, wh_info.allowed_updates)
             logger.info("Bot starting in webhook mode on port %s", port)
 
             app = web.Application()
             app.router.add_get("/", lambda _: web.Response(text="ok"))
             app.router.add_get("/health", lambda _: web.Response(text="ok"))
-            # В bot.py:
             SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
             setup_application(app, dp, bot=bot)
 
@@ -423,8 +722,6 @@ def main() -> None:
                     "Refusing to start polling on Render. Set WEBHOOK_URL or ensure "
                     "RENDER_EXTERNAL_URL is available so the bot can run in webhook mode."
                 )
-            # If the bot previously ran in webhook mode, Telegram will reject getUpdates.
-            # Make local/dev polling robust by disabling webhook first.
             await bot.delete_webhook(drop_pending_updates=True)
             await dp.start_polling(bot)
 

@@ -66,7 +66,7 @@ class GoogleCalendarClient:
 
     def create_booking_event(self, booking: Booking) -> str:
         summary = f"{booking.salon_name}: {booking.service_name}"
-        description = f"Клиент: {booking.client_name}\nТелефон: {booking.phone}\nУслуга: {booking.service_name}"
+        description = f"👤 Клиент: {booking.client_name}\n📞 Телефон: {booking.phone}\n✂️ Услуга: {booking.service_name}\n🏠 Салон: {booking.salon_name}"
         body = {
             "summary": summary,
             "description": description,
@@ -101,7 +101,7 @@ class GoogleCalendarClient:
             f"DTSTART;TZID={booking.timezone}:{start_str}",
             f"DTEND;TZID={booking.timezone}:{end_str}",
             f"SUMMARY:{booking.service_name} — {booking.salon_name}",
-            f"DESCRIPTION:Клиент: {booking.client_name}\\nТелефон: {booking.phone}\\nУслуга: {booking.service_name}",
+            f"DESCRIPTION:👤 Клиент: {booking.client_name}\\n📞 Телефон: {booking.phone}\\n✂️ Услуга: {booking.service_name}\\n🏠 Салон: {booking.salon_name}",
             f"LOCATION:{booking.salon_name}",
             "END:VEVENT",
             "END:VCALENDAR",

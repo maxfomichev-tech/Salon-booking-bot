@@ -21,6 +21,8 @@ class Config:
     salon_name: str
     address: str
     google_sheets_id: str
+    work_start_hour: int
+    work_end_hour: int
 
 
 def _require(name: str) -> str:
@@ -75,5 +77,7 @@ def load_config() -> Config:
         salon_name=os.getenv("SALON_NAME", "Аарон"),
         address=os.getenv("ADDRESS", ""),
         google_sheets_id=os.getenv("GOOGLE_SHEETS_ID", ""),
+        work_start_hour=int(os.getenv("WORK_START_HOUR", "10")),
+        work_end_hour=int(os.getenv("WORK_END_HOUR", "20")),
     )
 
