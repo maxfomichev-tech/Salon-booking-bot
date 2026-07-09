@@ -5,6 +5,7 @@ import sys
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import asyncio
@@ -25,6 +26,9 @@ from src.groq_chat import GroqConsultant
 from src.services import load_services, format_services, Service
 from src.sheets_client import SheetsClient
 
+if TYPE_CHECKING:
+    from src.config import Config
+
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 logger = logging.getLogger("aaron-salon-bot")
 
@@ -38,43 +42,48 @@ class BookingFlow(StatesGroup):
     confirm = State()
 
 
+_TZ_CACHE: dict[str, ZoneInfo] = {}
+
+BOOKING_TRIGGERS = frozenset({"запиши", "записаться", "хочу записаться", "хочу на", "запись", "booking"})
+
+
 def _parse_datetime_ru(text: str, tz: str) -> datetime | None:
     text = text.strip()
     now = datetime.now(ZoneInfo(tz))
 
     try:
         dt = datetime.strptime(text, "%d.%m")
-        return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
+        return dt.replace(year=now.year, tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         pass
 
     try:
         dt = datetime.strptime(text, "%d.%m.%Y")
-        return dt.replace(tzinfo=ZoneInfo(tz))
+        return dt.replace(tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         pass
 
     try:
         dt = datetime.strptime(text, "%Y-%m-%d")
-        return dt.replace(tzinfo=ZoneInfo(tz))
+        return dt.replace(tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         pass
 
     try:
         dt = datetime.strptime(text, "%d.%m %H:%M")
-        return dt.replace(year=now.year, tzinfo=ZoneInfo(tz))
+        return dt.replace(year=now.year, tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         pass
 
     try:
         dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
-        return dt.replace(tzinfo=ZoneInfo(tz))
+        return dt.replace(tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         pass
 
     try:
         dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
-        return dt.replace(tzinfo=ZoneInfo(tz))
+        return dt.replace(tzinfo=_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
     except ValueError:
         return None
 
@@ -140,9 +149,21 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _date_keyboard(tz: str) -> InlineKeyboardMarkup:
+    now = datetime.now(_TZ_CACHE.setdefault(tz, ZoneInfo(tz)))
+    today_str = now.strftime("%d.%m")
+    tomorrow = now + timedelta(days=1)
+    tomorrow_str = tomorrow.strftime("%d.%m")
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📅 Сегодня ({today_str})", callback_data="date:today")],
+        [InlineKeyboardButton(text=f"📅 Завтра ({tomorrow_str})", callback_data="date:tomorrow")],
+        [InlineKeyboardButton(text="📅 Другая дата", callback_data="date:other")],
+    ])
+
+
 @dataclass(frozen=True)
 class AppState:
-    cfg: object
+    cfg: "Config"
     services: list[Service]
     consultant: GroqConsultant
     calendar: GoogleCalendarClient
@@ -233,9 +254,8 @@ async def book_service(message: Message, state: FSMContext, app: AppState) -> No
     )
     await state.set_state(BookingFlow.dt)
     await message.answer(
-        "✅ Отлично. Напишите дату. Например: <code>20.06</code>\n"
-        f"Часовой пояс: {app.cfg.salon_timezone}",
-        parse_mode=ParseMode.HTML,
+        f"✅ Отлично. {svc.service} — {svc.duration_minutes} мин, {svc.price_rub} ₽.\n\nВыберите дату:",
+        reply_markup=_date_keyboard(app.cfg.salon_timezone),
     )
 
 
@@ -244,7 +264,8 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     if not dt:
         await message.answer(
             "Не понял дату. Напишите в формате <code>20.06</code> (день.месяц) или <code>20.06 15:30</code>\n"
-            "или нажмите /help для продолжения консультации",
+            "или нажмите /help для выхода.",
+            reply_markup=_date_keyboard(app.cfg.salon_timezone),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -264,8 +285,9 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     if _is_weekend(dt):
         await message.answer(
             "⚠️ Вы выбрали выходной день.\n"
-            "Салон работает с воскресенья по пятницу.\n"
-            "Пожалуйста, выберите другую дату или нажмите /help для выхода."
+            "Салон работает с воскресенья по пятницу. Выберите другую дату\n"
+            "или нажмите /help для выхода.",
+            reply_markup=_date_keyboard(app.cfg.salon_timezone),
         )
         return
 
@@ -273,7 +295,8 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
         await message.answer(
             f"⚠️ Салон работает с {_format_work_hours(app.cfg.work_start_hour, app.cfg.work_end_hour)}.\n"
             f"Вы выбрали {dt.strftime('%H:%M')}. Пожалуйста, выберите время в рабочие часы\n"
-            "или нажмите /help для выхода."
+            "или нажмите /help для выхода.",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
         )
         return
 
@@ -284,9 +307,9 @@ async def book_dt(message: Message, state: FSMContext, app: AppState) -> None:
     try:
         if not app.calendar.is_time_available(dt, end):
             await message.answer(
-                f"⚠️ К сожалению, время {dt.strftime('%H:%M')} уже занято.\n"
-                "Пожалуйста, выберите другое время\n"
-                "или нажмите /help для выхода."
+                f"⚠️ К сожалению, время {dt.strftime('%H:%M')} уже занято. Выберите другое\n"
+                "или нажмите /help для выхода:",
+                reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
             )
             return
     except Exception as e:
@@ -424,9 +447,8 @@ async def handle_service_cb(cq: CallbackQuery, state: FSMContext, app: AppState)
     )
     await state.set_state(BookingFlow.dt)
     await cq.message.edit_text(
-        "✅ Отлично. Напишите дату. Например: <code>20.06</code>\n"
-        f"Часовой пояс: {app.cfg.salon_timezone}",
-        parse_mode=ParseMode.HTML,
+        f"✅ Отлично. {svc.service} — {svc.duration_minutes} мин, {svc.price_rub} ₽.\n\nВыберите дату:",
+        reply_markup=_date_keyboard(app.cfg.salon_timezone),
     )
     await cq.answer()
 
@@ -435,14 +457,15 @@ async def handle_time_cb(cq: CallbackQuery, state: FSMContext, app: AppState) ->
     data = await state.get_data()
     selected_date_iso = data.get("selected_date_iso")
     if not selected_date_iso:
-        await cq.message.answer("Сначала напишите дату.")
+        await cq.message.edit_text("Сначала выберите дату.")
         await cq.answer()
         return
 
     time_part = cq.data.split(":", 1)[1]
     if time_part == "other":
         await cq.message.edit_text(
-            "Напишите дату и время полностью. Например: <code>20.06 15:30</code>",
+            "Напишите дату и время полностью. Например: <code>20.06 15:30</code>\n"
+            "или нажмите /help для выхода.",
             parse_mode=ParseMode.HTML,
         )
         await cq.answer()
@@ -452,7 +475,7 @@ async def handle_time_cb(cq: CallbackQuery, state: FSMContext, app: AppState) ->
     dt = datetime.fromisoformat(selected_date_iso).replace(hour=hour, minute=minute)
 
     if _is_weekend(dt):
-        await cq.message.answer(
+        await cq.message.edit_text(
             "⚠️ Вы выбрали выходной день.\n"
             "Салон работает с воскресенья по пятницу. Выберите другую дату\n"
             "или нажмите /help для выхода.",
@@ -462,7 +485,7 @@ async def handle_time_cb(cq: CallbackQuery, state: FSMContext, app: AppState) ->
         return
 
     if _is_outside_work_hours(dt, app.cfg.work_start_hour, app.cfg.work_end_hour):
-        await cq.message.answer(
+        await cq.message.edit_text(
             f"⚠️ Салон работает с {_format_work_hours(app.cfg.work_start_hour, app.cfg.work_end_hour)}.\n"
             f"Вы выбрали {dt.strftime('%H:%M')}. Пожалуйста, выберите время в рабочие часы\n"
             "или нажмите /help для выхода.",
@@ -476,7 +499,7 @@ async def handle_time_cb(cq: CallbackQuery, state: FSMContext, app: AppState) ->
 
     try:
         if not app.calendar.is_time_available(dt, end):
-            await cq.message.answer(
+            await cq.message.edit_text(
                 f"⚠️ К сожалению, время {dt.strftime('%H:%M')} уже занято. Выберите другое\n"
                 "или нажмите /help для выхода:",
                 reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
@@ -503,7 +526,41 @@ async def handle_back_cb(cq: CallbackQuery, state: FSMContext, app: AppState) ->
     elif target == "dt":
         await state.set_state(BookingFlow.dt)
         await cq.message.edit_text(
-            "Напишите дату. Например: <code>20.06</code>",
+            "Выберите дату:",
+            reply_markup=_date_keyboard(app.cfg.salon_timezone),
+        )
+    await cq.answer()
+
+
+async def handle_date_cb(cq: CallbackQuery, state: FSMContext, app: AppState) -> None:
+    parts = cq.data.split(":", 1)
+    if len(parts) < 2:
+        await cq.answer()
+        return
+    choice = parts[1]
+    tz_name = app.cfg.salon_timezone
+    tz_obj = _TZ_CACHE.setdefault(tz_name, ZoneInfo(tz_name))
+    now = datetime.now(tz_obj)
+
+    if choice == "today":
+        dt_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        await state.update_data(selected_date_iso=dt_midnight.isoformat())
+        await cq.message.edit_text(
+            f"📅 Сегодня {now.strftime('%d.%m')}. Выберите время:",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+        )
+    elif choice == "tomorrow":
+        tomorrow = now + timedelta(days=1)
+        dt_midnight = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+        await state.update_data(selected_date_iso=dt_midnight.isoformat())
+        await cq.message.edit_text(
+            f"📅 Завтра {tomorrow.strftime('%d.%m')}. Выберите время:",
+            reply_markup=_time_slots_keyboard(app.cfg.work_start_hour, app.cfg.work_end_hour),
+        )
+    elif choice == "other":
+        await cq.message.edit_text(
+            "Напишите дату. Например: <code>20.06</code>\n"
+            "или нажмите /help для выхода.",
             parse_mode=ParseMode.HTML,
         )
     await cq.answer()
@@ -529,7 +586,7 @@ async def consult(message: Message, state: FSMContext, app: AppState) -> None:
     except Exception as e:
         logger.exception("Groq error")
         await send_typing_and_reply(
-            message, f"Ошибка консультации. Попробуйте ещё раз.\n\n{e}"
+            message, "Ошибка консультации. Попробуйте ещё раз."
         )
         return
     await send_typing_and_reply(message, reply)
@@ -540,16 +597,7 @@ async def maybe_start_booking(
 ) -> None:
     text = (message.text or "").strip().lower()
 
-    booking_triggers = [
-        "запиши",
-        "записаться",
-        "хочу записаться",
-        "хочу на",
-        "запись",
-        "booking",
-    ]
-
-    for trigger in booking_triggers:
+    for trigger in BOOKING_TRIGGERS:
         if trigger in text:
             await cmd_book(message, state, app)
             return
@@ -601,13 +649,13 @@ def main() -> None:
     )
 
     async def _run() -> None:
-        print("BOT_STARTING", flush=True)
+        logger.info("BOT_STARTING")
         bot = Bot(token=cfg.telegram_bot_token)
         dp = Dispatcher(storage=MemoryStorage())
 
         @dp.callback_query.middleware()
         async def log_callback_query(handler, event, data):
-            print(f"CALLBACK_MW: data={event.data}", flush=True)
+            logger.debug("CALLBACK_MW: data=%s", event.data)
             return await handler(event, data)
 
         async def _cmd_start(message: Message, state: FSMContext) -> None:
@@ -660,6 +708,10 @@ def main() -> None:
                     if st == BookingFlow.dt.state:
                         await handle_time_cb(cq, state, app_state)
                         return
+                elif data.startswith("date:"):
+                    if st == BookingFlow.dt.state:
+                        await handle_date_cb(cq, state, app_state)
+                        return
                 elif data.startswith("confirm:"):
                     if st == BookingFlow.confirm.state:
                         await handle_confirm_cb(cq, state, app_state)
@@ -706,6 +758,7 @@ def main() -> None:
             app = web.Application()
             app.router.add_get("/", lambda _: web.Response(text="ok"))
             app.router.add_get("/health", lambda _: web.Response(text="ok"))
+            app.router.add_get("/ping", lambda _: web.Response(text="pong"))
             SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
             setup_application(app, dp, bot=bot)
 
